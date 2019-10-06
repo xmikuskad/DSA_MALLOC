@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 int* start; 
-//mozeme pouzivat char nie len void
+//mozeme pouzivat aj ine typy ako void
 
 void memory_init(void *ptr, unsigned int size)
 {
@@ -38,7 +38,6 @@ void *memory_alloc(unsigned int size)
 	{
 		if (*(start + num - sizeof(int)) >= size && *(start + num - sizeof(int)) > 0)
 		{ //Ak miesto vyhovuje
-			//TODO
 			
 			//Vytvorenie novej particie ak zostalo viac ako 12bytes (4B hlavicka, 8B data) a nepresahujeme danu pamat
 			if (*(start + num - sizeof(int)) - (size+sizeof(int)) >= 12 && (num + size + sizeof(int)) <= *start)
@@ -51,7 +50,8 @@ void *memory_alloc(unsigned int size)
 
 				//Zapisanie NEXT
 				*(start + num + size + sizeof(int)) = *(start + num);
-				//Zapisanie BEFORE
+
+				//Zapisanie PREVIOUS
 				*(start + num + size + 2 * sizeof(int)) = tmp;
 
 				//Prepisanie NEXT minuleho bloku
@@ -60,8 +60,10 @@ void *memory_alloc(unsigned int size)
 			}
 			else
 			{
-  				*(start + tmp) = *(start + num); //Prepisanie NEXT na dalsi volny blok;
-				if (tmp != sizeof(int)) //Pokial nie sme na zaciatku (tam nie je BEFORE)
+				//Prepisanie NEXT na dalsi volny blok;
+  				*(start + tmp) = *(start + num); 
+
+				if (tmp != sizeof(int)) //Pokial nie sme na zaciatku (tam nie je PREVIOUS)
 				{
 					*(start + num + sizeof(int)) = *(start + tmp + sizeof(int));
 				}
@@ -86,91 +88,127 @@ void *memory_alloc(unsigned int size)
 
 }
 
-int memory_free(void *valid_ptr){
+int memory_free(void *valid_ptr)
+{
 	printf("Start: %p\n", start);
 	printf("Smernik: %p\n", valid_ptr);
 	printf("Rozdiel: %d\n\n", (int*)valid_ptr - start);
 
 	int position = (int*)valid_ptr - start;
-	int num = sizeof(int);
-	//int tmp = num;
-	//int flag = 1;
+	int num = sizeof(int); 
+	int tmp = num;
+	//int flag = 0; //flag sluzi na rozpoznanie, ci prebehol merge s nasledujucim blokom
 
-	//if(*(start+num))
-	while (*(start + num) != -1 && (*(start + num-sizeof(int)) < position || num==sizeof(int)))
+	//Ak sa snazime uvolnit uvolnene miesto
+	if (*((int*)valid_ptr - sizeof(int)) >= 0)
 	{
-		//tmp = num;
+		printf("Pokus o uvolnenie uvolnenej pamati - chyba\n");
+		return 1;
+	}
+
+	//Dostanem sa na pozadovane miesto
+	while (*(start + num) != -1 && (num < position || num==sizeof(int)))
+	{
+		tmp = num;
 		num = *(start + num);
 	}
 
-	//Prepis prveho bitu na 0
+	//zistit, ci vkladam medze dva bloky alebo som na konci
+	if (*(start + num) == -1 && num < position)
+		tmp = num;
+
+	//Prepis prveho bitu na 0 - "uvolnenie"
 	*((int*)valid_ptr - sizeof(int)) ^= 1 << 31; //*((int*)valid_ptr - sizeof(int))<<1
 
-	//printf("Smernik pls: %d\n", start - (int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)) - sizeof(int)));
-	//printf("%d\n", *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)) - sizeof(int))));
 
-	//Pokus o merge s nasledujucim blokom - musi byt volny a nesmie to byt koniec
+	//Pokus o merge s nasledujucim blokom - musi byt volny a nesmie to byt koniec pamati
 	if (*((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)))) > 0
 		&& *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)))) < *start)
 	{
 		printf("Merge s nasledujucim blokom\n");
-		//flag = 1;
 
 		//Pozriem velkost uvolnovaneho bloku ( valid_ptr - sizeof(int) ) a nasledne k smerniku tuto velkost pricitam.
 		//Ak je velkost nasledujuceho bloku <0, znamena to, ze je obsadeny a mergovat nebudeme.
-		//Inak zvacsime velkost a prepiseme NEXT a BEFORE z nasledujuceho bloku
-		*((int*)valid_ptr - sizeof(int)) += *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int))));
-		*(int*)valid_ptr = *((int*)valid_ptr - sizeof(int) + (*(int*)valid_ptr)); //Prepisanie NEXT
-		*((int*)valid_ptr + sizeof(int)) = *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr + sizeof(int)))); //Prepisanie BEFORE
+		//Inak zvacsime velkost a prepiseme NEXT a PREVIOUS z nasledujuceho bloku
+		//*((int*)valid_ptr - sizeof(int)) += *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int))));
+		*(int*)valid_ptr = *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int))+sizeof(int))); //Prepisanie NEXT
+		*((int*)valid_ptr + sizeof(int)) = *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)) + 2*sizeof(int))); //Prepisanie PREVIOUS
+		*((int*)valid_ptr - sizeof(int)) += *((int*)valid_ptr - sizeof(int) + (*((int*)valid_ptr - sizeof(int)))); //Prepisanie velkosti
 	}
 	else //Ak sa neda spravit merge
 	{
 		printf("Merge s nasledujucim blokom neprebehol\n");
 		//Nastavenie NEXT
-		*(int*)valid_ptr = *(start + num - sizeof(int));
-		if (*(start + num) != -1)
+		//*(int*)valid_ptr = *(start + tmp);
+		/*
+		int tmp2 = sizeof(int);
+
+		//Prehladanie miesta, kam tento blok zaradime
+		while (*(start + tmp2) > 0 && tmp2 < position)
 		{
-			//Zmena BEFORE iba ak nasleduje niaky blok
+			tmp2 = *(start + tmp2);
+		}*/
+
+		//Nastavenie NEXT
+		*((int*)valid_ptr) = *(start + tmp);
+
+		//Pokial nenastavujeme PREVIOUS na zaciatku
+		if (num != sizeof(int))
+		{
 			*(start + num + sizeof(int)) = position;
-			//Nastavenie NEXT okrem zaciatku
-			*(int*)valid_ptr = *(start + num - sizeof(int));
 		}
-		else //Specialne pre prvy NEXT
+
+		//*(start + tmp2) = position;
+
+		/*if (tmp != sizeof(int))
+		{
+			//Nastavenie NEXT (okrem zaciatku)
+			//*(int*)valid_ptr = num;
+
+
+			//Zmena PREVIOUS iba ak nasleduje niaky blok
+			*(start + tmp + sizeof(int)) = position;
+
+			//Nastavenie NEXT (okrem zaciatku)
+			//*(int*)valid_ptr = *(start + num - sizeof(int));
+		}
+		/*else //Specialne pre prvy NEXT, pretoze ten nema PREVIOUS
 		{
 			*(int*)valid_ptr = -1;
-		}
+		}*/
 	}
 
 	//Pokus o merge s predchadzajucim blokom
-	if (num == sizeof(int)) //Ak sme na zaciatku a nemame tam velkost bloku ani BEFORE
+	if (tmp == sizeof(int)) //Ak sme na zaciatku a nemame tam velkost bloku ani PREVIOUS
 	{
 		printf("Nastavenie nextu na zaciatku\n");
-		*(start + num) = position;
+		*(start + tmp) = position;
 	}
 	else //Ak mame pred sebou blok
 	{
 		//Pokus o merge
-		if (start + num - sizeof(int) + *((start + num - sizeof(int))) == ((int*)valid_ptr-sizeof(int)))
+		if (start + tmp - sizeof(int) + *((start + tmp - sizeof(int))) == ((int*)valid_ptr-sizeof(int)))
 		{
 			printf("Merge na zaciatku prebehol\n");
-			//flag = 1;
+
 			//Zvacsenie velkosti
-			*(start + num - sizeof(int)) += *((int*)valid_ptr - sizeof(int));
+			*(start + tmp - sizeof(int)) += *((int*)valid_ptr - sizeof(int));
 			//Prepisanie NEXT
-			*(start + num) = *(int*)valid_ptr;
-			//Prepisanie BEFORE
-			if(*(start + num + sizeof(int)) != sizeof(int)) //Pokial neprepisujeme zaciatok (tam BEFORE nie je)
-				*(start+*(start + num + sizeof(int))) = *((int*)valid_ptr+sizeof(int));
+			*(start + tmp) = *(int*)valid_ptr;
+			//Prepisanie PREVIOUS - WTF NETREBA
+			/*if(*(start + tmp + sizeof(int)) != sizeof(int)) //Pokial neprepisujeme zaciatok (tam PREVIOUS nie je)
+				*(start+*(start + tmp + sizeof(int))) = *((int*)valid_ptr+sizeof(int));
+				*/
 
 		}
 		else //Ak sa neda spravit merge
 		{
 			printf("Merge na zaciatku neprebehol\n");
-			//Nastavenie BEFORE
-			*((int*)valid_ptr + sizeof(int)) = num;
+			//Nastavenie PREVIOUS
+			*((int*)valid_ptr + sizeof(int)) = tmp;
 
 			//Zmena NEXT
-			*(start + num) = position;
+			*(start + tmp) = position;
 		}
 	}
 
@@ -182,12 +220,12 @@ int memory_free(void *valid_ptr){
 int main()
 {
 	char a[50];
-	char *test, *test2, *test3,*test4;
+	char *test1, *test2, *test3,*test4;
 
-	memory_init(a, 50);
+	memory_init(a, 60);
 
-	test = (char*)memory_alloc(8);
-	if (test != NULL)
+	test1 = (char*)memory_alloc(8);
+	if (test1 != NULL)
 	{
 		printf("Alokacia test1 uspesna\n\n");
 	}
@@ -226,7 +264,7 @@ int main()
 		printf("Alokacia test4 neuspesna\n\n");
 	}
 
-	if (!memory_free(test))
+	if (!memory_free(test4))
 	{
 		printf("Uvolnenie test sa podarilo\n\n");
 	}
@@ -236,6 +274,15 @@ int main()
 	}
 
 	if (!memory_free(test2))
+	{
+		printf("Uvolnenie test2 sa podarilo\n\n");
+	}
+	else
+	{
+		printf("Uvolnenie test2 sa nepodarilo\n\n");
+	}
+
+	if (!memory_free(test1))
 	{
 		printf("Uvolnenie test2 sa podarilo\n\n");
 	}
