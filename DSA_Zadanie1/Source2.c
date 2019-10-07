@@ -31,7 +31,7 @@ int memory_check(void *ptr)
 
 void *memory_alloc(unsigned int size)
 {
-	if (size < 4) size = 4; //Zarovnanie najmenej na 8 bytes;
+	if (size < 4) size = 4; //Zarovnanie najmenej na 4 bytes;
 
 	//Ak nemame ziadny volny blok - return
 	if (*(int*)((char*)start + sizeof(int)) == -1)
@@ -43,7 +43,7 @@ void *memory_alloc(unsigned int size)
 
 	do
 	{
-		if (*(int*)((char*)start + num - sizeof(int)) >= size && *(int*)((char*)start + num - sizeof(int)) > 0)
+		if (*(int*)((char*)start + num - sizeof(int)) >= (size + sizeof(int)) && *(int*)((char*)start + num - sizeof(int)) > 0)
 		{ //Ak miesto vyhovuje
 
 			//Vytvorenie novej particie ak zostalo viac ako 8bytes (4B hlavicka, 4B NEXT) a nepresahujeme danu pamat
@@ -70,17 +70,16 @@ void *memory_alloc(unsigned int size)
 			}
 
 			//Nastavenie bitu na 1 - OBSADENY
-			printf("Velkost %d\n", *(int*)((char*)start + num - sizeof(int)));
 			*(int*)((char*)start + num - sizeof(int)) |= 1 << 31;
-			//printf("New value %d\n", *(int*)((char*)start + num - sizeof(int)));
-			/**(int*)((char*)start + num - sizeof(int)) |= 1 << 8;
-			printf("New value %d\n", *(int*)(start + num - sizeof(int)));*/
 
-			//printf("Position of pointer: %d\n", (int*)((int*)((char*)start + num) - (int*)start));
 			return (void*)((char*)start + num);
 		}
 		else
 		{
+			if (*(int*)((char*)start + num) == -1)
+				break; //Niekedy sa moze stat, ze vyjdeme von z pamati a to nechceme
+
+			//Pokracovanie v prehladavani
 			tmp = num;
 			num = *(int*)((char*)start + num);
 		}
@@ -93,14 +92,12 @@ void *memory_alloc(unsigned int size)
 int memory_free(void *valid_ptr)
 {
 	int position = (char*)valid_ptr - (char*)start;
-	printf("Position: %d\n", position);
 	int num = sizeof(int);
 	int tmp = num;
 
 	//Ak sa snazime uvolnit uvolnene miesto
 	if (*(int*)((char*)valid_ptr - sizeof(int)) >= 0)
 	{
-		printf("Pokus o uvolnenie uvolnenej pamati - chyba\n");
 		return 1;
 	}
 
@@ -116,35 +113,28 @@ int memory_free(void *valid_ptr)
 		tmp = num;
 
 	//Prepis prveho bitu na 0 - "uvolnenie"
-	*(int*)((char*)valid_ptr - sizeof(int)) ^= 1 << 31; //*(int*)((int*)valid_ptr - sizeof(int))<<1
+	*(int*)((char*)valid_ptr - sizeof(int)) ^= 1 << 31;
 
 
 	//Pokus o merge s nasledujucim blokom - musi byt volny a nesmie to byt koniec pamati
 	if (*(int*)((char*)valid_ptr - sizeof(int) + (*(int*)((char*)valid_ptr - sizeof(int)))) > 0
 		&& *(int*)((char*)valid_ptr - sizeof(int) + (*(int*)((char*)valid_ptr - sizeof(int)))) < *(int*)start)
 	{
-		printf("Merge s nasledujucim blokom\n");
-
 		//Pozriem velkost uvolnovaneho bloku ( valid_ptr - sizeof(int) ) a nasledne k smerniku tuto velkost pricitam.
 		//Ak je velkost nasledujuceho bloku <0, znamena to, ze je obsadeny a mergovat nebudeme.
 		//Inak zvacsime velkost a prepiseme NEXT a PREVIOUS z nasledujuceho bloku
-		//*(int*)((int*)valid_ptr - sizeof(int)) += *(int*)((int*)valid_ptr - sizeof(int) + (*(int*)((int*)valid_ptr - sizeof(int))));
 		*(int*)(char*)valid_ptr = *(int*)((char*)valid_ptr - sizeof(int) + (*(int*)((char*)valid_ptr - sizeof(int)) + sizeof(int))); //Prepisanie NEXT
 		*(int*)((char*)valid_ptr - sizeof(int)) += *(int*)((char*)valid_ptr - sizeof(int) + (*(int*)((char*)valid_ptr - sizeof(int)))); //Prepisanie velkosti
 	}
 	else //Ak sa neda spravit merge
 	{
-		printf("Merge s nasledujucim blokom neprebehol\n");
-
 		//Nastavenie NEXT
 		*(int*)((char*)valid_ptr) = *(int*)((char*)start + tmp);
-
 	}
 
 	//Pokus o merge s predchadzajucim blokom
 	if (tmp == sizeof(int)) //Ak sme na zaciatku a nemame tam velkost bloku ani PREVIOUS
 	{
-		printf("Nastavenie nextu na zaciatku\n");
 		*(int*)((char*)start + tmp) = position;
 	}
 	else //Ak mame pred sebou blok
@@ -152,24 +142,17 @@ int memory_free(void *valid_ptr)
 		//Pokus o merge
 		if ((char*)start + tmp - sizeof(int) + *(int*)(((char*)start + tmp - sizeof(int))) == (int*)((char*)valid_ptr - sizeof(int)))
 		{
-			printf("Merge na zaciatku prebehol\n");
-
 			//Zvacsenie velkosti
 			*(int*)((char*)(char*)start + tmp - sizeof(int)) += *(int*)((char*)valid_ptr - sizeof(int));
 			//Prepisanie NEXT
 			*(int*)((char*)start + tmp) = *(int*)(char*)valid_ptr;
-
-
 		}
 		else //Ak sa neda spravit merge
 		{
-			printf("Merge na zaciatku neprebehol\n");
-
 			//Zmena NEXT
 			*(int*)((char*)start + tmp) = position;
 		}
 	}
-
 
 	return 0;
 }
@@ -192,11 +175,11 @@ void Tester()
 	for (int i = 0; i < 5; i++)
 	{
 		testik = memory_alloc(8);
-		printf("Testik: %p\n", testik);
+		//printf("Testik: %p\n", testik);
 		//memory_free(testik);
 	}
 
-	//printf("Uspesne alokovany %d x 8bytes\n", count);
+	////printf("Uspesne alokovany %d x 8bytes\n", count);
 	*/
 	for (int i = 0; i < count; i++)
 	{
@@ -208,7 +191,7 @@ void Tester()
 	//memory_free(pole[3]);
 	//memory_free(pole[1]);
 
-	printf("DONE\n");
+	//printf("DONE\n");
 }
 
 void TuringCorrecter()
@@ -216,7 +199,7 @@ void TuringCorrecter()
 	char* testik = NULL;
 	char** pole = malloc(30 * sizeof(void*));
 
-	printf("Velkost: %d\n", -2147479345 ^ (1 << 31));
+	//printf("Velkost: %d\n", -2147479345 ^ (1 << 31));
 	testik = memory_alloc(3583);	//	alloc(3583) -> 94754850078748
 	pole[15] = testik;
 	testik = memory_alloc(2326);	//	alloc(2326) -> 94754850082335
@@ -325,14 +308,14 @@ void TuringCorrecter()
 
 int main()
 {
-	char a[100000];
+	char a[100];
 	char *test1, *test2, *test3, *test4;
 
-	memory_init(a, 100000);
+	memory_init(a, 100);
 
 
-	//Tester();
-	TuringCorrecter();
+	Tester();
+	//TuringCorrecter();
 	
 	getchar();
 	getchar();
